@@ -1,0 +1,21 @@
+body{
+    background:#111;
+    color:white;
+    text-align:center;
+    font-family:Arial, sans-serif;
+}
+
+.title{
+    margin-top:10px;
+}
+
+#hud{
+    margin:10px;
+}
+
+canvas{
+    background:linear-gradient(#3a3a3a,#1f1f1f);
+    display:block;
+    margin:auto;
+    border:2px solid #555;
+}
