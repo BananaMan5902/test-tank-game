@@ -1,27 +1,39 @@
 const canvas = document.getElementById("game");
 const ctx = canvas.getContext("2d");
 
-canvas.width = 1000;
-canvas.height = 600;
+canvas.width = 1200;
+canvas.height = 650;
 
 /* =============================
-   CINEMATIC CAMERA
+   WORLD PHYSICS
 ============================= */
 
-let cameraShake = 0;
+let wind = (Math.random()-0.5)*0.3;
+let screenShake = 0;
 
 /* =============================
    PLAYER TANK
 ============================= */
 
 let player = {
-    x:150,
-    y:430,
-    w:75,
-    h:45,
-    health:100,
-    recoil:0
+    x:200,
+    y:480,
+    w:100,
+    h:55,
+    recoil:0,
+    muzzleFlash:0,
+    armor:120
 };
+
+/* Mouse aiming */
+
+let mouse={x:0,y:0};
+
+canvas.addEventListener("mousemove",e=>{
+    let r=canvas.getBoundingClientRect();
+    mouse.x=e.clientX-r.left;
+    mouse.y=e.clientY-r.top;
+});
 
 /* =============================
    GAME OBJECTS
@@ -30,36 +42,28 @@ let player = {
 let bullets=[];
 let particles=[];
 let enemies=[];
-let enemyCount=4;
-
-/* Battlefield ground */
-let groundY=460;
+let enemyCount=6;
 
 /* =============================
-   SOUND HOOKS (Add files later)
-============================= */
-
-function playSound(src){
-    try{ new Audio(src).play(); }
-    catch(e){}
-}
-
-/* =============================
-   ENEMY AI TANKS (REALISTIC AIMING)
+   SPAWN ENEMY SQUAD AI
 ============================= */
 
 function spawnEnemies(){
 
     enemies=[];
 
-    for(let i=0;i<4;i++){
+    for(let i=0;i<6;i++){
 
         enemies.push({
-            x:400+i*140,
-            y:150+Math.random()*60,
-            w:60,
-            h:40,
+            x:500+i*150,
+            y:460+Math.random()*40,
+            baseY:460,
+            w:100,
+            h:55,
+            armor:100,
+            hp:100,
             alive:true,
+            flankDir:Math.random()<0.5?-1:1,
             cooldown:Math.random()*120
         });
     }
@@ -68,74 +72,184 @@ function spawnEnemies(){
 spawnEnemies();
 
 /* =============================
-   SHOOTING PHYSICS (MOVIE SHELLS)
+   SOUND HOOK
+============================= */
+
+function playSound(src){
+    try{ new Audio(src).play(); }
+    catch(e){}
+}
+
+/* =============================
+   TERRAIN DRAW (PLAINS WAR ZONE)
+============================= */
+
+function drawGround(){
+
+    let g=ctx.createLinearGradient(0,400,0,canvas.height);
+
+    g.addColorStop(0,"#3b4a2f");
+    g.addColorStop(1,"#1a1f1a");
+
+    ctx.fillStyle=g;
+    ctx.fillRect(0,400,canvas.width,canvas.height);
+}
+
+/* =============================
+   TANK RENDERING (DEPTH SCALE)
+============================= */
+
+function drawTank(tank,isPlayer=false){
+
+    let depthScale = 1 - (600 - tank.x)/2500;
+    depthScale = Math.max(0.7,depthScale);
+
+    let w = tank.w * depthScale;
+    let h = tank.h * depthScale;
+
+    ctx.save();
+
+    ctx.translate(tank.x,tank.y);
+
+    /* Body */
+    ctx.fillStyle="#555";
+    ctx.fillRect(-w/2,-h/2,w,h);
+
+    /* Tracks */
+    ctx.fillStyle="#333";
+    ctx.fillRect(-w/2,h/3,w,12);
+
+    /* Turret rotation */
+
+    let turretAngle;
+
+    if(isPlayer){
+        turretAngle=Math.atan2(
+            mouse.y-tank.y,
+            mouse.x-tank.x
+        );
+    }else{
+        turretAngle=tank.turretAngle;
+    }
+
+    ctx.rotate(turretAngle);
+
+    /* Barrel */
+    ctx.fillStyle="#777";
+    ctx.fillRect(20,-6,60,12);
+
+    ctx.restore();
+}
+
+/* =============================
+   SHOOTING PHYSICS
 ============================= */
 
 window.addEventListener("keydown",e=>{
-    if(e.code==="Space"){
-        shoot();
-    }
-
-    if(e.code==="ArrowUp"){
-        player.y-=14;
-        if(player.y<280) player.y=280;
-    }
+    if(e.code==="Space") shoot();
 });
 
 function shoot(){
 
-    player.recoil=18;
-    cameraShake=12;
+    player.recoil=20;
+    player.muzzleFlash=8;
+
+    let angle=Math.atan2(
+        mouse.y-player.y,
+        mouse.x-player.x
+    );
 
     bullets.push({
-        x:player.x+player.w,
-        y:player.y+18,
-        vx:26+Math.random()*3,
-        vy:(Math.random()-0.5)*2,
-        life:140
+        x:player.x,
+        y:player.y,
+        vx:Math.cos(angle)*35,
+        vy:Math.sin(angle)*35,
+        life:160
     });
 
-    createDust(player.x,player.y);
-
-    playSound("shoot.mp3");
+    screenShake=10;
 }
 
 /* =============================
    EXPLOSION SYSTEM
 ============================= */
 
-function explode(x,y){
+function explosion(x,y){
 
-    for(let i=0;i<35;i++){
+    for(let i=0;i<45;i++){
 
         particles.push({
             x,y,
-            vx:(Math.random()-0.5)*8,
-            vy:(Math.random()-0.5)*8,
-            life:80+Math.random()*40
+            vx:(Math.random()-0.5)*10,
+            vy:(Math.random()-0.5)*10,
+            life:120
         });
     }
 
     playSound("explosion.mp3");
 }
 
-/* Dust battlefield effect */
-function createDust(x,y){
+/* Shockwave ring */
+function shockwave(x,y){
 
-    for(let i=0;i<15;i++){
+    for(let r=2;r<40;r+=4){
 
         particles.push({
-            x:x+Math.random()*40,
-            y:y+Math.random()*30,
-            vx:(Math.random()-0.5)*3,
-            vy:Math.random()*-2,
-            life:50
+            x:x+(Math.random()-0.5)*5,
+            y:y+(Math.random()-0.5)*5,
+            vx:Math.cos(r)*6,
+            vy:Math.sin(r)*6,
+            life:60
         });
     }
 }
 
 /* =============================
-   COLLISION
+   ENEMY AI SQUAD BEHAVIOR
+============================= */
+
+function enemyAI(enemy){
+
+    enemy.cooldown--;
+
+    /* Flanking movement */
+
+    enemy.x += enemy.flankDir * 0.4;
+
+    if(Math.random()<0.005){
+        enemy.flankDir*=-1;
+    }
+
+    /* Aim player */
+
+    enemy.turretAngle=Math.atan2(
+        player.y-enemy.y,
+        player.x-enemy.x
+    );
+
+    if(enemy.cooldown<=0){
+
+        enemy.cooldown=140+Math.random()*120;
+
+        let dx=player.x-enemy.x;
+        let dy=player.y-enemy.y;
+
+        let dist=Math.sqrt(dx*dx+dy*dy);
+
+        bullets.push({
+            x:enemy.x,
+            y:enemy.y,
+            vx:(dx/dist)*25+wind,
+            vy:(dy/dist)*25,
+            life:160
+        });
+
+        explosion(enemy.x,enemy.y);
+    }
+}
+
+/* =============================
+   COLLISION + ARMOR SYSTEM
 ============================= */
 
 function hitTest(a,b){
@@ -145,34 +259,15 @@ function hitTest(a,b){
            a.y+a.h>b.y;
 }
 
-/* =============================
-   ENEMY AI COMBAT LOGIC
-============================= */
+/* Armor penetration simulation */
+function damageArmor(enemy){
 
-function enemyAI(enemy){
+    enemy.hp -= 25;
 
-    enemy.cooldown--;
-
-    if(enemy.cooldown<=0){
-
-        enemy.cooldown=120+Math.random()*80;
-
-        /* Lead target shot physics */
-        let dx = player.x - enemy.x;
-        let dy = player.y - enemy.y;
-
-        let dist = Math.sqrt(dx*dx+dy*dy);
-
-        bullets.push({
-            x:enemy.x,
-            y:enemy.y+15,
-            vx: -12*(dx/dist)+Math.random(),
-            vy: -2 + Math.random()*2,
-            life:160
-        });
-
-        cameraShake=6;
-        playSound("enemy_shot.mp3");
+    if(enemy.hp<=0){
+        enemy.alive=false;
+        enemyCount--;
+        shockwave(enemy.x,enemy.y);
     }
 }
 
@@ -184,78 +279,69 @@ function update(){
 
     requestAnimationFrame(update);
 
-    ctx.save();
-
-    if(cameraShake>0){
-        ctx.translate(
-            (Math.random()-0.5)*cameraShake,
-            (Math.random()-0.5)*cameraShake
-        );
-
-        cameraShake*=0.85;
-    }
-
     ctx.clearRect(0,0,canvas.width,canvas.height);
 
-    /* Background battlefield haze */
-    let gradient=ctx.createLinearGradient(0,0,0,canvas.height);
-    gradient.addColorStop(0,"#2a2a2a");
-    gradient.addColorStop(1,"#101010");
+    drawGround();
 
-    ctx.fillStyle=gradient;
-    ctx.fillRect(0,0,canvas.width,canvas.height);
-
-    /* Ground */
-    ctx.fillStyle="#222";
-    ctx.fillRect(0,groundY,canvas.width,140);
+    /* Screen vibration */
+    if(screenShake>0){
+        ctx.save();
+        ctx.translate(
+            (Math.random()-0.5)*screenShake,
+            (Math.random()-0.5)*screenShake
+        );
+        screenShake*=0.85;
+    }
 
     /* Player recoil physics */
+
     if(player.recoil>0){
-        player.x-=player.recoil*0.08;
+        player.x-=player.recoil*0.1;
         player.recoil*=0.85;
     }
 
-    /* Player tank */
-    ctx.fillStyle="#666";
-    ctx.fillRect(player.x,player.y,player.w,player.h);
+    /* Player muzzle glow */
 
-    /* =====================
-       BULLETS (REALISTIC)
-    ===================== */
+    if(player.muzzleFlash>0){
+
+        ctx.fillStyle="rgba(255,200,50,0.6)";
+        ctx.beginPath();
+        ctx.arc(player.x+60,player.y,25,0,Math.PI*2);
+        ctx.fill();
+
+        player.muzzleFlash--;
+    }
+
+    drawTank(player,true);
+
+    /* Bullets */
 
     ctx.fillStyle="orange";
 
-    bullets.forEach((b,bi)=>{
+    bullets.forEach(b=>{
 
-        b.x+=b.vx;
+        b.x+=b.vx+wind;
         b.y+=b.vy;
-        b.vy+=0.05; // gravity arc physics
+        b.vy+=0.04;
         b.life--;
 
-        ctx.fillRect(b.x,b.y,10,4);
+        ctx.fillRect(b.x,b.y,12,4);
 
         enemies.forEach(enemy=>{
-
             if(enemy.alive && hitTest(
-                {x:b.x,y:b.y,w:10,h:4},
-                enemy
+                {x:b.x,y:b.y,w:12,h:4},
+                {x:enemy.x-50,y:enemy.y-30,w:100,h:60}
             )){
-                enemy.alive=false;
-                enemyCount--;
-
-                explode(enemy.x,enemy.y);
-
-                document.getElementById("enemies")
-                    .innerText=enemyCount;
+                explosion(enemy.x,enemy.y);
+                shockwave(enemy.x,enemy.y);
+                damageArmor(enemy);
             }
         });
     });
 
     bullets=bullets.filter(b=>b.life>0);
 
-    /* =====================
-       PARTICLES
-    ===================== */
+    /* Particles */
 
     ctx.fillStyle="#ff8800";
 
@@ -269,30 +355,19 @@ function update(){
 
     particles=particles.filter(p=>p.life>0);
 
-    /* =====================
-       ENEMY TANK DRAW + AI
-    ===================== */
-
-    ctx.fillStyle="#990000";
+    /* Enemy Squad */
 
     enemies.forEach(enemy=>{
         if(enemy.alive){
-            ctx.fillRect(enemy.x,enemy.y,enemy.w,enemy.h);
+            drawTank(enemy,false);
             enemyAI(enemy);
         }
     });
 
-    ctx.restore();
-
-    /* =====================
-       WIN SCREEN
-    ===================== */
-
     if(enemyCount<=0){
         ctx.fillStyle="white";
-        ctx.font="60px Arial";
-        ctx.fillText("Battle Won",340,300);
-        return;
+        ctx.font="70px Arial";
+        ctx.fillText("VICTORY",420,320);
     }
 }
 
